@@ -299,8 +299,9 @@ handle_info(?LO_CMD_COMMIT_OFFSETS, #state{is_in_group = true} = State) ->
   {ok, NewState} =
     try
       do_commit_offsets(State)
-    catch throw : Reason ->
-      stabilize(State, 0, Reason)
+    catch
+      throw : Reason ->
+        stabilize(State, 0, Reason)
     end,
   {noreply, NewState};
 handle_info(?LO_CMD_STABILIZE(N, _Reason),
@@ -460,16 +461,11 @@ stabilize(#state{ rejoin_delay_seconds = RejoinDelaySeconds
   F3 = fun sync_group/1,
 
   RetryFun =
-    fun(StateIn, NewReason) ->
-      log(StateIn, info, "failed to join group\nreason: ~p", [NewReason]),
-      _ = case AttemptNo =:= 0 of
-        true ->
-          %% do not delay before the first retry
-          self() ! ?LO_CMD_STABILIZE(AttemptNo + 1, NewReason);
-        false ->
-          erlang:send_after(timer:seconds(RejoinDelaySeconds), self(),
-                            ?LO_CMD_STABILIZE(AttemptNo + 1, NewReason))
-      end,
+    fun(StateIn, NewReason, Stacktrace) ->
+      log(StateIn, info, "Failed to join group\nreason: ~p\n~p",
+          [NewReason, Stacktrace]),
+      erlang:send_after(timer:seconds(RejoinDelaySeconds), self(),
+                        ?LO_CMD_STABILIZE(AttemptNo + 1, NewReason)),
       {ok, StateIn}
     end,
   do_stabilize([F1, F2, F3], RetryFun, State).
@@ -480,8 +476,10 @@ do_stabilize([F | Rest], RetryFun, State) ->
   try
     {ok, #state{} = NewState} = F(State),
     do_stabilize(Rest, RetryFun, NewState)
-  catch throw : Reason ->
-    RetryFun(State, Reason)
+  catch
+    throw : Reason ?BIND_STACKTRACE(Stack) ->
+      ?GET_STACKTRACE(Stack),
+      RetryFun(State, Reason, Stack)
   end.
 
 maybe_reset_member_id(State, Reason) ->
