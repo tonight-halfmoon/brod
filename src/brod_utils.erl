@@ -235,7 +235,10 @@ decode_messages(_BeginOffset, ?incomplete_message(_) = Incomplete) ->
 decode_messages(_BeginOffset, {jump_to_begin_offset, O}) ->
   {jump_to_begin_offset, O};
 decode_messages(BeginOffset, Messages) when is_list(Messages) ->
-  drop_old_messages(BeginOffset, Messages).
+  io:format(user, "fetched ~p\n", [Messages]),
+  R = drop_old_messages(BeginOffset, Messages),
+  io:format(user, "result: ~p\n", [R]),
+  R.
 
 %% @doc Fetch a single message set from the given topic-partition.
 -spec fetch([endpoint()], topic(), partition(), offset(),
@@ -351,6 +354,7 @@ make_req_fun(SockPid, Topic, Partition, WaitTime, MinBytes) ->
 -spec fetch(pid(), req_fun(), offset(), kpro:count()) ->
                {ok, [brod:message()]} | {error, any()}.
 fetch(SockPid, ReqFun, Offset, MaxBytes) when is_pid(SockPid) ->
+  io:format(user, "fetching ~p ~p\n", [Offset, MaxBytes]),
   Request = ReqFun(Offset, MaxBytes),
   #kpro_rsp{ tag = fetch_response
            , msg = Msg
@@ -369,6 +373,13 @@ fetch(SockPid, ReqFun, Offset, MaxBytes) when is_pid(SockPid) ->
           fetch(SockPid, ReqFun, Offset, Size);
         {jump_to_begin_offset, O} ->
           fetch(SockPid, ReqFun, O, MaxBytes);
+        [] ->
+          case get(magic_v2_last_offset) of
+            undefined ->
+              {ok, []};
+            NO ->
+              fetch(SockPid, ReqFun, NO, MaxBytes)
+          end;
         Messages ->
           {ok, Messages}
       end

@@ -569,6 +569,7 @@ send_fetch_request(#state{ begin_offset = BeginOffset
                                      State#state.max_wait_time,
                                      State#state.min_bytes,
                                      State#state.max_bytes),
+  io:format(user, "sending ~p\n", [Request]),
   brod_sock:request_async(SocketPid, Request).
 
 %% @private
